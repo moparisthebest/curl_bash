@@ -19,12 +19,28 @@
    @author Phil
 """
 
-from numpy import std
 import re
 import SocketServer
 import socket
 import ssl
 import time
+
+# statistics functions modified from https://stackoverflow.com/questions/15389768/standard-deviation-of-a-list/27758326#27758326
+
+def mean(data):
+    """Return the sample arithmetic mean of data."""
+    n = len(data)
+    if n < 1:
+        raise ValueError('mean requires at least one data point')
+    return sum(data)/float(n) # in Python 3 use sum(data)/n
+
+def std(data):
+    """Calculates the population standard deviation."""
+    n = len(data)
+    c = mean(data)
+    ss = sum((x-c)**2 for x in data)
+    pvar = ss/float(n)
+    return pvar**0.5
 
 class MoguiServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     """HTTP server to detect curl | bash"""
