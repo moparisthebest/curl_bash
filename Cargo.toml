@@ -1,0 +1,14 @@
+[package]
+name = "curl_bash"
+version = "0.1.0"
+authors = ["moparisthebest <admin@moparisthebest.com>"]
+
+description = "Be evil to curl | bash executors."
+repository  = "https://code.moparisthebest.com/moparisthebest/curl_bash"
+keywords    = ["curl", "bash", "evil"]
+
+license = "GPL-3.0+"
+readme = "README.md"
+
+edition = "2018"
+
