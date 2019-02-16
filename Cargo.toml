@@ -7,8 +7,13 @@ description = "Be evil to curl | bash executors."
 repository  = "https://code.moparisthebest.com/moparisthebest/curl_bash"
 keywords    = ["curl", "bash", "evil"]
 
-license = "GPL-3.0+"
+license = "AGPL-3.0+"
 readme = "README.md"
 
 edition = "2018"
 
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+    "*.md",
+]

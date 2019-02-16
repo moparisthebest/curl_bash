@@ -1,5 +1,3 @@
-#![feature(duration_float)]
-
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
@@ -94,7 +92,10 @@ impl EvilServer {
 
         for x in 0..self.max_padding {
             send_chunk(&stream, &self.padding)?;
-            timing[x as usize] = now.elapsed().as_float_secs();
+            //timing[x as usize] = now.elapsed().as_float_secs(); // nightly
+            let elapsed = now.elapsed();
+            timing[x as usize] =
+                (elapsed.as_secs() as f64) + (elapsed.subsec_nanos() as f64) / 1_000_000_000f64;
         }
 
         //println!("timing {:?}", timing);
